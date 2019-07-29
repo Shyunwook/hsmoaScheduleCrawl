@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html>
+    <script type="text/javascript">
+        let result = <%- JSON.stringify(items) %>;
+        let test = result.filter((val) => {
+            return val.thumbnail == '';
+        })
+        console.log(result);
+        console.log('썸네일 X length : ' + test.length);
+    </script>
+    <body>
+    </body>
+</html>
