@@ -66,29 +66,13 @@ exports.handler = function (event, context) {
         }
 
         target_date = event.date;
-        crawl_turn = moment().add(9, 'hours');
-        expire_option = true;
+        // crawl_turn = moment().add(9, 'hours');
+        crawl_turn = "23";
+        expire_option = false;
     }
 
     console.log(`${target_date} ---- 크롤링 시작`);
     console.log(moa);
-
-    // if(message_param.offset < 7 ){
-    //     let queueUrl = 'https://sqs.ap-northeast-2.amazonaws.com/592500281728/hsmoaDailyCrawlQueue';
-    //     let params = {
-    //         MessageBody : JSON.stringify(message_param),
-    //         QueueUrl : queueUrl
-    //     }
-
-    //     setTimeout(function(){
-    //         console.log('메세지 전송');
-    //         console.log(`message :  ${JSON.stringify(message_param)}`);
-    //         sendToQueue(params);
-    //     },3000);
-
-    // }else{
-    //     console.log('배치 종료');
-    // }
 
     request({
         url: moa,
@@ -214,36 +198,46 @@ exports.handler = function (event, context) {
 
     function getPrevTurnTime(date, item, turn) {
         return new Promise(async (resolve, reject) => {
-            var params = {
+            let params = {
                 TableName : "CrawlHsmoaSchedule",
-                KeyConditionExpression : "#d = :d",
-                FilterExpression: "#i = :i and crawl_turn = :t",
-                ExpressionAttributeNames : { 
+                IndexName: "date-crawl_turn-index",
+                KeyConditionExpression : "#d = :d and crawl_turn = :t",
+                FilterExpression: "#i = :i",
+                ExpressionAttributeNames : {
                     "#d" : "date",
-                    "#i" : "item" 
+                    "#i" : "item"
                 },
                 ExpressionAttributeValues: {
                     ":d" : date,
                     ":i" : item,
                     ":t" : turn
                 }
-            }
-            let data = await dynamo.query(params).promise();
+              }
+
             let param = {};
-            if(data.Items.length <= 0){
-                param = {
-                    start : moment().add(9, 'hours').format('HH:mm'),
-                    end : moment().add(10, 'hours').format('HH:mm'),
-                    flag : '이전 스냅샷에 없음!'
+            
+            dynamo.query(params, function(err, data){
+                if(err){
+                  console.log('에러',err);
+                  reject();
+                }else{
+
+                    if(data.Count <= 0){
+                        param = {
+                            start : moment().add(9, 'hours').add(-30, 'minutes').format('HH:mm'),
+                            end : moment().add(9, 'hours').add(30, 'minutes').format('HH:mm'),
+                            flag : '이전 스냅샷에 없음!'
+                        }
+                    }else{
+                        param = { 
+                            start : data.Items[0].start_time,
+                            end : data.Items[0].end_time,
+                            flag : '검색성공!'
+                        }
+                    }
+                    resolve(param);
                 }
-            }else{
-                param = { 
-                    start : data.Items[0].start_time,
-                    end : data.Items[0].end_time,
-                    flag : '검색성공!'
-                }
-            }
-            resolve(param);
+            });
         })
     };
 
@@ -283,7 +277,7 @@ exports.handler = function (event, context) {
         var $ = cheerio.load(body);
         // return body;
         var timeline = $('div.timeline-group').find('.timeline-item');
-
+        console.log('??');
         let arr = await (function(){
             return new Promise( async (resolve, reject) => {
                 let item_arr = [];
@@ -348,7 +342,7 @@ exports.handler = function (event, context) {
                     };
         
                     if (crawl_turn != "23" || expire_option == true) {
-                        let expiration_time = moment().add(23, 'hours').unix();
+                        let expiration_time = moment().add(15, 'hours').unix();
                         param.PutRequest.Item.expiration_time = expiration_time;
                     }
                     item_arr.push(param);
@@ -361,7 +355,6 @@ exports.handler = function (event, context) {
             context.res.render('./test.ejs', { items: item_arr });
         } else {
             console.log('길이 ::::::::::', arr.length);
-            // callback();
             putItemToDynamo(arr, callback);
         }
     }
