@@ -243,13 +243,15 @@ exports.handler = function (event, context) {
 
     async function putItemToDynamo(item_arr, callback) {
         // const DB = "CrawlHsmoaSchedule";
-        let count = item_arr.length - item_arr.length % 20;
-        for (let i = 0; i <= count; i++) {
+        // let count = item_arr.length - item_arr.length % 20;
+        let count = Math.ceil(item_arr.length/20);
+        for (let i = 0; i < count; i++) {
             let batch = {
                 "RequestItems": {
                     "CrawlHsmoaSchedule": []
                 }
             }
+
             if (item_arr.length > 0) {
                 batch.RequestItems["CrawlHsmoaSchedule"] = item_arr.splice(0, 20);
                 try {
@@ -257,12 +259,57 @@ exports.handler = function (event, context) {
                     // console.log(batch.RequestItems.CrawlHsmoaSchedule[0]);
                 } catch (e) {
                     console.log('DB 적재 에러 발생');
+                    let list = '';
 
                     for(let i = 0; i < batch.RequestItems.CrawlHsmoaSchedule.length; i ++ ){
+                        list += JSON.stringify(batch.RequestItems.CrawlHsmoaSchedule[i]);
                         console.log(JSON.stringify(batch.RequestItems.CrawlHsmoaSchedule[i]));
                     }
                     console.log(e);
-                    return;
+
+                    let message = 
+                        `# **DB 적재 에러 발생**
+                         ${list}
+
+                         **Error Log**
+                         > ${e}
+                        `
+                    makeErrorReportWorkplace(message);
+
+                    if(e.code=="ValidationException" && e.message.indexOf('duplicates') > -1){
+                        let keys = batch.RequestItems.CrawlHsmoaSchedule.map((item) => {
+                            return item.PutRequest.Item['turn-start-shop'];
+                        })
+                        
+                        let duplicates = getDuplicates(keys);
+                        let number = Object.keys(duplicates).length;
+            
+                        for(let j = 0; j < number; j++){
+                            let k = batch.RequestItems.CrawlHsmoaSchedule.map((item) => {
+                                return item.PutRequest.Item['turn-start-shop'];
+                            })
+                        
+                            let d = getDuplicates(k);
+                            seekDup(batch.RequestItems.CrawlHsmoaSchedule, d[Object.keys(d)[0]])
+                        }
+
+                        try{
+                            await dynamo.batchWriteItem(batch).promise();
+                            let message = `******Dupliate 디버깅 성공*****`;
+                            console.log('duplicate 처리 완료');
+                            makeErrorReportWorkplace(message);
+                        }catch(e){
+                            console.log('Duplicate 디버깅 오류');
+                            console.log(e);
+                            let message = `Dupliate 디버깅 에러`;
+                            makeErrorReportWorkplace(message);
+
+                            for(let i = 0; i < batch.RequestItems.CrawlHsmoaSchedule.length; i ++ ){
+                                console.log(JSON.stringify(batch.RequestItems.CrawlHsmoaSchedule[i]));
+                            }
+                            return;
+                        }
+                    }
                 }
                 // console.log(i + " : " + batch.RequestItems["CrawlHsmoaSchedule"].length);
             }
@@ -270,8 +317,31 @@ exports.handler = function (event, context) {
         console.log(`${target_date} --- 크롤링 & DB 적재 완료`);
         callback();
         // console.log("길이:::::::::::", item_arr.length);
-        
     }
+
+    function seekDup(arr, t){
+        console.log(t);
+        for(let i = t.length - 1; i >= 0; i--){
+            console.log(arr[t[i]].PutRequest.Item['link']);
+            if(arr[t[i]].PutRequest.Item['link'].indexOf('video') > -1){
+                console.log(`삭제 대상 : ${arr[t[i]].PutRequest.Item['link']}`);
+                arr.splice(t[i],1);
+            }
+        }
+    }
+    
+    function getDuplicates(arr) {
+        var duplicates = {};
+        for (var i = 0; i < arr.length; i++) {
+            if(duplicates.hasOwnProperty(arr[i])) {
+                duplicates[arr[i]].push(i);
+            } else if (arr.lastIndexOf(arr[i]) !== i) {
+                duplicates[arr[i]] = [i];
+            }
+        }
+    
+        return duplicates;
+    };
 
     async function parseHtml(body, callback) {
         var $ = cheerio.load(body);
@@ -355,9 +425,40 @@ exports.handler = function (event, context) {
             context.res.render('./test.ejs', { items: item_arr });
         } else {
             console.log('길이 ::::::::::', arr.length);
+            // arr[0].PutRequest.Item['turn-start-shop'] = 'duplicate0';
+            // arr[0].PutRequest.Item['link'] = 'video link !!!';
+            // arr[1].PutRequest.Item['turn-start-shop'] = 'duplicate0';
+
+            // arr[4].PutRequest.Item['turn-start-shop'] = 'duplicate4';
+            // arr[4].PutRequest.Item['link'] = 'video link !!!';
+            // arr[5].PutRequest.Item['turn-start-shop'] = 'duplicate4';
+
+            // arr[9].PutRequest.Item['turn-start-shop'] = 'duplicate9';
+            // arr[9].PutRequest.Item['link'] = 'video link !!!';
+            // arr[10].PutRequest.Item['turn-start-shop'] = 'duplicate9';
             putItemToDynamo(arr, callback);
         }
     }
 
+    function makeErrorReportWorkplace(message){
+        let access_token = "DQVJ2NnRMOGFsN2JzeFdjdXVFZA09SZA01OV2JFdDRWNHcwOWxPZAlNydEhza1JqRTgyVXNHVDNUNG9QRVk0OE9YaFVYejlPODZAPQ3doR0dQUU1PRlNfd1p2ODQ5cERTZAzJTZAEtRUzk2bThtSFhjUHZAXMnhxc1c3VVl6LXFvSENubFJXOWJxQ0xxVUxXM3RmSENlVVd4NzVkbWVCbzhzS1hoeFhuOXpqZAENQU0FRY3RXTEtZAbVdvM0VxMmtwanNUMng5YzhaMUVaUUR6RnlCNGt6QgZDZD";
+        let group_id = "672166493293048";
 
+        let option = {
+            url : `https://graph.facebook.com/${group_id}/feed`,
+            formData : {
+                access_token : access_token,
+                message : message,
+                formatting : "MARKDOWN"
+            }
+        }
+
+        request.post(option, function(error, response, data){
+            if(error){
+                console.log(error)
+            }else if(response.statusCode == 200){
+                console.log(data);
+            }
+        })
+    }
 };
